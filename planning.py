@@ -1,6 +1,7 @@
-from itertools import combinations
-from ortools.sat.python import cp_model
+from typing import Any
 
+from ortools.sat.python import cp_model
+from ortools.sat.python.cp_model import CpModel
 import pandas as pd
 import altair as alt
 import click
@@ -56,6 +57,26 @@ class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
         )
 
 
+# Define distance metric. Here the l1 distance
+def distance(pos_1: tuple[int, int], pos_2: tuple[int, int]):
+    return abs(pos_1[0] - pos_2[0]) + abs(pos_1[1] - pos_2[1])
+
+
+def add_distance_constraint(
+    model: CpModel,
+    x: dict[str, dict[list[Any]]],
+    name_1: str,
+    name_2: str,
+    min_distance: int,
+    max_distance: int = 4,
+) -> None:
+    for pos_1, var_1 in x[name_1].items():
+        for pos_2, var_2 in x[name_2].items():
+            distance_var = model.NewIntVar(0, max_distance, "")
+            model.Add(distance_var == distance(pos_1, pos_2))
+            model.Add(distance_var > min_distance).OnlyEnforceIf([var_1, var_2])
+
+
 def setup_and_optimize(with_preferences: bool) -> VarArraySolutionPrinter:
     # Creates the model.
     model = cp_model.CpModel()
@@ -64,10 +85,6 @@ def setup_and_optimize(with_preferences: bool) -> VarArraySolutionPrinter:
     rows = range(0, 3)
     columns = range(0, 3)
     names = ["◯", "□", "△"]
-
-    # Define distance metric. Here the l1 distance
-    def l_1(pos_1: tuple[int, int], pos_2: tuple[int, int]):
-        return abs(pos_1[0] - pos_2[0]) + abs(pos_1[1] - pos_2[1])
 
     # Create variables
     x = {
@@ -86,36 +103,11 @@ def setup_and_optimize(with_preferences: bool) -> VarArraySolutionPrinter:
     # Only one trailer per position
     for row in rows:
         for col in columns:
-            for name_1, name_2 in combinations(names, 2):
-                var1 = x[name_1][(row, col)]
-                var2 = x[name_2][(row, col)]
-                model.AddBoolOr(
-                    [var1.Not(), var2.Not()]  # not(var1 & var2)= not(var1) | not(var1)
-                )
+            model.Add(sum(x[name][(row, col)] for name in x) < 2)
 
-    # # distance betwen ◯ and □
-    for pos_1, var_1 in x["◯"].items():
-        for pos_2, var_2 in x["□"].items():
-            distance_var = model.NewIntVar(0, max(rows) * max(columns), "")
-            distance = l_1(pos_1, pos_2)
-            model.Add(distance_var == distance)
-            model.Add(distance_var > 2).OnlyEnforceIf([var_1, var_2])
-
-    # # distance betwen □ and △
-    for pos_1, var_1 in x["□"].items():
-        for pos_2, var_2 in x["△"].items():
-            distance_var = model.NewIntVar(0, max(rows) * max(columns), "")
-            distance = l_1(pos_1, pos_2)
-            model.Add(distance_var == distance)
-            model.Add(distance_var > 2).OnlyEnforceIf([var_1, var_2])
-
-    # # distance betwen □ and △
-    for pos_1, var_1 in x["△"].items():
-        for pos_2, var_2 in x["◯"].items():
-            distance_var = model.NewIntVar(0, max(rows) * max(columns), "")
-            distance = l_1(pos_1, pos_2)
-            model.Add(distance_var == distance)
-            model.Add(distance_var > 1).OnlyEnforceIf([var_1, var_2])
+    add_distance_constraint(model, x, "◯", "□", 2)
+    add_distance_constraint(model, x, "□", "△", 2)
+    add_distance_constraint(model, x, "△", "◯", 1)
 
     # Creates a solver and solves the model.
     solver = cp_model.CpSolver()
@@ -141,8 +133,8 @@ def setup_and_optimize(with_preferences: bool) -> VarArraySolutionPrinter:
     "--save_figure",
     is_flag=True,
     show_default=True,
-    default=True,
-    help="Plots and saves a figure of the solution",
+    default=False,
+    help="Saves a figure of the solution",
 )
 def main(model_input_path, with_preferences: bool, save_figure: bool):
     solution_printer = setup_and_optimize(with_preferences)
