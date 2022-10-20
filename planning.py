@@ -46,14 +46,18 @@ class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
 
         return (
             alt.Chart(plot_df)
-            .mark_point(size=200, filled=True)
+            .mark_point(size=200, filled=True, opacity=1.0)
             .encode(
                 x="row:O",
                 y="column:O",
-                shape="name:N",
-                color=alt.Color("name:N", scale=alt.Scale(range=colors), legend=None),
+                shape=alt.Shape("name:N", sort=["◯", "□", "△"], legend=None),
+                color=alt.Color(
+                    "name:N",
+                    scale=alt.Scale(domain=["◯", "□", "△"], range=colors),
+                    legend=None,
+                ),
             )
-            .facet("solution_number", columns=4, background="#001325")
+            .facet("solution_number", columns=8, background="#001325")
         )
 
 
@@ -64,7 +68,7 @@ def distance(pos_1: tuple[int, int], pos_2: tuple[int, int]):
 
 def add_distance_constraint(
     model: CpModel,
-    x: dict[str, dict[list[Any]]],
+    x: dict[str, dict[tuple[int, int], Any]],
     name_1: str,
     name_2: str,
     min_distance: int,
@@ -98,7 +102,7 @@ def setup_and_optimize(with_preferences: bool) -> VarArraySolutionPrinter:
 
     # Place trailer exactly once
     for name in names:
-        model.Add(sum([variable for _, variable in x[name].items()]) == 1)
+        model.Add(sum([variable for variable in x[name].values()]) == 1)
 
     # Only one trailer per position
     for row in rows:
@@ -133,7 +137,7 @@ def setup_and_optimize(with_preferences: bool) -> VarArraySolutionPrinter:
     "--save_figure",
     is_flag=True,
     show_default=True,
-    default=False,
+    default=True,
     help="Saves a figure of the solution",
 )
 def main(model_input_path, with_preferences: bool, save_figure: bool):
