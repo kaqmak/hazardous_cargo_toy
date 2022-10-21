@@ -17,6 +17,7 @@ class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
         self.__variables = variables
         self.__solution_count = 0
         self.all_solutions = []
+        self.loss = []
 
     def on_solution_callback(self):
         self.__solution_count += 1
@@ -26,7 +27,9 @@ class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
                 if self.Value(variable):
                     print(f"{var_name}: ({pos[0]}, {pos[1]})")
                     solution.append((var_name, pos[0], pos[1]))
+        print(f"Loss: {self.ObjectiveValue()}")
         self.all_solutions.append(solution)
+        self.loss.append(self.ObjectiveValue())
         print()
 
     def solution_count(self):
@@ -39,17 +42,21 @@ class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
             [
                 pd.DataFrame.from_records(
                     solution, columns=["name", "row", "column"]
-                ).assign(solution_number=sol_number)
+                ).assign(solution_number=sol_number, loss=self.loss[sol_number])
                 for sol_number, solution in enumerate(self.all_solutions)
             ]
         )
+        if plot_df["loss"].sum() != 0:
+            facet_by = "loss:O"
+        else:
+            facet_by = "solution_number:O"
 
         return (
             alt.Chart(plot_df)
             .mark_point(size=200, filled=True, opacity=1.0)
             .encode(
-                x="row:O",
-                y="column:O",
+                x="column:O",
+                y="row:O",
                 shape=alt.Shape("name:N", sort=["◯", "□", "△"], legend=None),
                 color=alt.Color(
                     "name:N",
@@ -57,13 +64,17 @@ class VarArraySolutionPrinter(cp_model.CpSolverSolutionCallback):
                     legend=None,
                 ),
             )
-            .facet("solution_number", columns=8, background="#001325")
+            .facet(facet_by, columns=8, background="#001325")
         )
 
 
 # Define distance metric. Here the l1 distance
 def distance(pos_1: tuple[int, int], pos_2: tuple[int, int]):
     return abs(pos_1[0] - pos_2[0]) + abs(pos_1[1] - pos_2[1])
+
+
+def distance_to_living_quarter(position: tuple[int, int], max_column: int = 2) -> int:
+    return abs(position[1] - max_column)
 
 
 def add_distance_constraint(
@@ -113,9 +124,21 @@ def setup_and_optimize(with_preferences: bool) -> VarArraySolutionPrinter:
     add_distance_constraint(model, x, "□", "△", 2)
     add_distance_constraint(model, x, "△", "◯", 1)
 
+    # Adding preferences (as far away from column 3)
+    if with_preferences:
+        loss = -1 * sum(
+            distance_to_living_quarter(position, max(columns)) * variable
+            for positions in x.values()
+            for position, variable in positions.items()
+        )
+
+        # Minimize the loss
+        model.Minimize(loss)
+
     # Creates a solver and solves the model.
     solver = cp_model.CpSolver()
     solver.parameters.enumerate_all_solutions = True
+
     solution_printer = VarArraySolutionPrinter(x)
     status = solver.Solve(model, solution_printer)
     if status not in [cp_model.FEASIBLE, cp_model.OPTIMAL]:
@@ -137,7 +160,7 @@ def setup_and_optimize(with_preferences: bool) -> VarArraySolutionPrinter:
     "--save_figure",
     is_flag=True,
     show_default=True,
-    default=True,
+    default=False,
     help="Saves a figure of the solution",
 )
 def main(model_input_path, with_preferences: bool, save_figure: bool):
