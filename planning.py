@@ -127,7 +127,7 @@ def setup_and_optimize(with_preferences: bool) -> VarArraySolutionPrinter:
     # Adding preferences (as far away from column 3)
     if with_preferences:
         loss = -1 * sum(
-            distance_to_living_quarter(position, max(columns)) * variable
+            distance_to_living_quarter(position, max(columns) + 1) * variable
             for positions in x.values()
             for position, variable in positions.items()
         )
